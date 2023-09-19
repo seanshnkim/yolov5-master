@@ -1,13 +1,40 @@
+
+# YOLOv5 🚀 by Ultralytics, AGPL-3.0 license
+"""
+Run YOLOv5 detection inference on images, videos, directories, globs, YouTube, webcam, streams, etc.
+
+Usage - sources:
+    $ python detect.py --weights yolov5s.pt --source 0                               # webcam
+                                                     img.jpg                         # image
+                                                     vid.mp4                         # video
+                                                     screen                          # screenshot
+                                                     path/                           # directory
+                                                     list.txt                        # list of images
+                                                     list.streams                    # list of streams
+                                                     'path/*.jpg'                    # glob
+                                                     'https://youtu.be/Zgi9g1ksQHc'  # YouTube
+                                                     'rtsp://example.com/media.mp4'  # RTSP, RTMP, HTTP stream
+
+Usage - formats:
+    $ python detect.py --weights yolov5s.pt                 # PyTorch
+                                 yolov5s.torchscript        # TorchScript
+                                 yolov5s.onnx               # ONNX Runtime or OpenCV DNN with --dnn
+                                 yolov5s_openvino_model     # OpenVINO
+                                 yolov5s.engine             # TensorRT
+                                 yolov5s.mlmodel            # CoreML (macOS-only)
+                                 yolov5s_saved_model        # TensorFlow SavedModel
+                                 yolov5s.pb                 # TensorFlow GraphDef
+                                 yolov5s.tflite             # TensorFlow Lite
+                                 yolov5s_edgetpu.tflite     # TensorFlow Edge TPU
+                                 yolov5s_paddle_model       # PaddlePaddle
+"""
+
 import argparse
 import csv
 import os
 import platform
 import sys
 from pathlib import Path
-import cv2
-# import pyrealsense2
-from realsense_depth import *
-import time
 
 import torch
 
@@ -17,50 +44,12 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))  # add ROOT to PATH
 ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
-from ultralytics.utils.plotting import Annotator, colors, save_one_box
-
 from models.common import DetectMultiBackend
 from utils.dataloaders import IMG_FORMATS, VID_FORMATS, LoadImages, LoadScreenshots, LoadStreams
 from utils.general import (LOGGER, Profile, check_file, check_img_size, check_imshow, check_requirements, colorstr, cv2,
                            increment_path, non_max_suppression, print_args, scale_boxes, strip_optimizer, xyxy2xywh)
 from utils.torch_utils import select_device, smart_inference_mode
 
-
-FILE = Path(__file__).resolve()
-ROOT = FILE.parents[0]  # YOLOv5 root directory
-if str(ROOT) not in sys.path:
-    sys.path.append(str(ROOT))  # add ROOT to PATH
-ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
-
-
-def show_distance(event, x, y, args, params):
-    point = (x, y)
-
-def show_depth_distance(point, dc):
-    ret, depth_frame, color_frame = dc.get_frame()
-    
-    # flip the image
-    color_frame = cv2.flip(color_frame,1)
-    depth_frame = cv2.flip(depth_frame,1)
-
-    # Show distance for a specific point
-    cv2.circle(color_frame, point, 5, (0, 200, 255), cv2.FILLED)
-    distance = depth_frame[point[1], point[0]]
-
-    cv2.putText(color_frame, "{}mm".format(distance), (point[0], point[1] - 20), cv2.FONT_HERSHEY_PLAIN, 2, (0, 0, 0), 2)
-
-    # cv2.imshow("depth frame", depth_frame)
-    # cv2.imshow("Color frame", color_frame)
-
-'''
-- bus
-- car
-- green
-- person
-- red
-- yello
-'''
-custom_classes = ['bus', 'car', 'green', 'person', 'red', 'yellow']
 
 @smart_inference_mode()
 def run(
@@ -114,22 +103,10 @@ def run(
 
     # Dataloader
     bs = 1  # batch_size
-    
-    # time START (2023-09-19 added)
-    start_time = time.time()
-     
     if webcam:
         view_img = check_imshow(warn=True)
         dataset = LoadStreams(source, img_size=imgsz, stride=stride, auto=pt, vid_stride=vid_stride)
         bs = len(dataset)
-        # Initialize Camera Intel Realsense
-        # 1시간 반만에 디버깅 성공 ~~ dataset과 DepthCamera를 동시에 생성하면 에러가 발생한다
-        # 한 가지 리소스(뎁스 카메라)를 두 개 이상의 객체가 동시에 참조하려고 하기 때문에 에러가 발생하는 듯.
-        # dc = DepthCamera()
-        # Create mouse event
-        # cv2.namedWindow("Color frame")
-        # cv2.setMouseCallback("Color frame", show_distance)
-        
     elif screenshot:
         dataset = LoadScreenshots(source, img_size=imgsz, stride=stride, auto=pt)
     else:
@@ -139,8 +116,6 @@ def run(
     # Run inference
     model.warmup(imgsz=(1 if pt or model.triton else bs, 3, *imgsz))  # warmup
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
-    
-    
     for path, im, im0s, vid_cap, s in dataset:
         with dt[0]:
             im = torch.from_numpy(im).to(model.device)
@@ -160,7 +135,19 @@ def run(
 
         # Second-stage classifier (optional)
         # pred = utils.general.apply_classifier(pred, classifier_model, im, im0s)
-        
+
+        # Define the path for the CSV file
+        csv_path = save_dir / 'predictions.csv'
+
+        # Create or append to the CSV file
+        def write_to_csv(image_name, prediction, confidence):
+            data = {'Image Name': image_name, 'Prediction': prediction, 'Confidence': confidence}
+            with open(csv_path, mode='a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=data.keys())
+                if not csv_path.is_file():
+                    writer.writeheader()
+                writer.writerow(data)
+
         # Process predictions
         for i, det in enumerate(pred):  # per image
             seen += 1
@@ -176,35 +163,37 @@ def run(
             s += '%gx%g ' % im.shape[2:]  # print string
             gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
             imc = im0.copy() if save_crop else im0  # for save_crop
-            annotator = Annotator(im0, line_width=line_thickness, example=str(names))
-            len_det = len(det)
-            if len_det:
+            if len(det):
                 # Rescale boxes from img_size to im0 size
                 det[:, :4] = scale_boxes(im.shape[2:], det[:, :4], im0.shape).round()
-                
-                det_idx = -1
-                for i in range(len_det):
-                    c = int(det[:, 5][i])
-                    if custom_classes[c] == 'green' or custom_classes[c] == 'red' or custom_classes[c] == 'yellow':
-                        det_idx = i
-                        break
-                if det_idx != -1:
-                    xmin, ymin, xmax, ymax = det[:, :4][det_idx]
-                    centroid = (xmin + xmax) // 2, (ymin + ymax) // 2
-                    print(f"centroid: {centroid}")
-                    show_depth_distance(centroid, dc)
-                    
-                    key = cv2.waitKey(1)
-                    if key == 27:
-                        return
-                
+
                 # Print results
                 for c in det[:, 5].unique():
                     n = (det[:, 5] == c).sum()  # detections per class
                     s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
+                # Write results
+                for *xyxy, conf, cls in reversed(det):
+                    c = int(cls)  # integer class
+                    label = names[c] if hide_conf else f'{names[c]}'
+                    confidence = float(conf)
+                    confidence_str = f'{confidence:.2f}'
+
+                    if save_csv:
+                        write_to_csv(p.name, label, confidence_str)
+
+                    if save_txt:  # Write to file
+                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                        line = (cls, *xywh, conf) if save_conf else (cls, *xywh)  # label format
+                        with open(f'{txt_path}.txt', 'a') as f:
+                            f.write(('%g ' * len(line)).rstrip() % line + '\n')
+
+                    if save_img or save_crop or view_img:  # Add bbox to image
+                        c = int(cls)  # integer class
+                        label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
+                        
             # Stream results
-            im0 = annotator.result()
+            
             if view_img:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
@@ -234,11 +223,6 @@ def run(
 
         # Print time (inference-only)
         LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
-        
-        # Return function after certain time period (2023-09-19 added)
-        end_time = time.time()
-        if end_time - start_time > 60: # 60초가 되면 자동 종료
-            break
 
     # Print results
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
@@ -248,7 +232,6 @@ def run(
         LOGGER.info(f"Results saved to {colorstr('bold', save_dir)}{s}")
     if update:
         strip_optimizer(weights[0])  # update model (to fix SourceChangeWarning)
-
 
 
 def parse_opt():
@@ -286,6 +269,12 @@ def parse_opt():
     print_args(vars(opt))
     return opt
 
-opt = parse_opt()
-check_requirements(ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
-run(**vars(opt))
+
+def main(opt):
+    check_requirements(ROOT / 'requirements.txt', exclude=('tensorboard', 'thop'))
+    run(**vars(opt))
+
+
+if __name__ == '__main__':
+    opt = parse_opt()
+    main(opt)
