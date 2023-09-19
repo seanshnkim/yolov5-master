@@ -1,0 +1,8 @@
+names:
+- vehicular_signal
+- invisible_signal
+- pedestrian_signal
+- unusual_signal
+nc: 4
+train: "/home/piai/\uB2E4\uC6B4\uB85C\uB4DC/traffic_light_aihub/Data/Training/origin"
+val: "/home/piai/\uB2E4\uC6B4\uB85C\uB4DC/traffic_light_aihub/Data/Validation/origin"
