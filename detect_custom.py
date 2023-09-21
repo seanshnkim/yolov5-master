@@ -164,6 +164,7 @@ def inference(model, dataset, webcam, save_dir,
     names = model.names
     seen, windows, dt = 0, [], (Profile(), Profile(), Profile())
     centroid = [-1, -1]
+    detected_label = ''
     
     path, im, im0s, vid_cap, s = next(iter(dataset))
     with dt[0]:
@@ -214,6 +215,7 @@ def inference(model, dataset, webcam, save_dir,
                 xmin, ymin, xmax, ymax = xyxy
                 centroid[0] = (xmin + xmax) // 2
                 centroid[1] = (ymin + ymax) // 2
+                detected_label = label
 
                 c = int(cls)  # integer class
                 label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
@@ -229,7 +231,7 @@ def inference(model, dataset, webcam, save_dir,
             cv2.imshow(str(p), im0)
             cv2.waitKey(1)  # 1 millisecond
     
-    return centroid
+    return centroid, detected_label
 
     # Print time (inference-only)
     # LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
